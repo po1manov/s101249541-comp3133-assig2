@@ -1,44 +1,52 @@
+require('dotenv').config();
+
 const express = require('express');
-const { ApolloServer } = require('apollo-server-express');
-const mongoose = require('mongoose');
+const { ApolloServer, AuthenticationError } = require('apollo-server-express');
+const jwt = require('jsonwebtoken');
 
-const typeDefs = require('./schema/typeDefs');
-const resolvers = require('./resolvers');
-const schema = require('./schema');
+const schema = require('./schema/index');
 
-// Connect to MongoDB
-mongoose.connect('mongodb+srv://pojmanovg:AiYMa92qYCf6G3Dg@comp3133assignment1.5p6byeu.mongodb.net/', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-});
-const db = mongoose.connection;
-db.on('error', console.error.bind(console, 'MongoDB connection error:'));
-db.once('open', () => {
-    console.log('Connected to MongoDB');
-});
+const getTokenFromHeaders = (req) => {
+  const authorization = req.headers.authorization || '';
+  const match = authorization.match(/^Bearer (.+)$/);
+  return match ? match[1] : null;
+};
 
-// Create an Express application
+const getUserFromToken = (token) => {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch (error) {
+    switch (error.name) {
+      case 'TokenExpiredError':
+        throw new AuthenticationError('Your token is expired');
+      case 'JsonWebTokenError':
+        throw new AuthenticationError('Invalid token');
+      default:
+        throw new Error('Authentication token error');
+    }
+  }
+};
+
 const app = express();
 
-// Set up Apollo Server
+app.use(express.json());
+
 const server = new ApolloServer({
-    schema,
-    context: ({ req }) => {
-        // You can add context logic here, such as authentication middleware
-        // For example, you might decode JWT tokens and attach user information to the context
-        return {
-            // Add context properties here
-        };
-    },
+  schema,
+  context: async ({ req }) => {
+    const token = getTokenFromHeaders(req);
+    let user = null;
+    if (token) {
+      try {
+        user = getUserFromToken(token);
+      } catch (e) {
+        console.warn(`Unable to authenticate using auth token: ${token}`);
+      }
+    }
+    return { user };
+  },
 });
 
-// Start Apollo Server
-server.start().then(() => {
-    server.applyMiddleware({ app });
-});
-
-app.get('/', (req, res) => {
-    res.send('Hello World!');
-});
+server.applyMiddleware({ app });
 
 module.exports = app;

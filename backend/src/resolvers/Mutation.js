@@ -1,92 +1,86 @@
 const User = require('../models/User');
 const Employee = require('../models/Employee');
 const bcrypt = require('bcryptjs');
+const { isAuthenticated, generateToken } = require('../services/authService');
 
 const mutationResolvers = {
-    signup: async (_, { username, email, password }) => {
-        try {
-            const userExists = await User.findOne({ $or: [{ username }, { email }] });
-            if (userExists) {
-                throw new Error('Username or email already exists');
-            }
+  signup: async (_, { username, email, password }) => {
+    const userExists = await User.findOne({ $or: [{ username }, { email }] });
+    if (userExists) {
+      throw new Error('Username or email already exists');
+    }
 
-            const newUser = new User({
-                username,
-                email,
-                password,
-            });
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-            const savedUser = await newUser.save();
+    const newUser = new User({
+      username,
+      email,
+      password: hashedPassword,
+    });
 
-            return {
-                _id: savedUser._id,
-                username: savedUser.username,
-                email: savedUser.email,
-            };
-        } catch (error) {
-            throw new Error(`Signup failed: ${error.message}`);
-        }
-    },
+    const savedUser = await newUser.save();
 
-    addNewEmployee: async (_, { first_name, last_name, email, gender, salary }) => {
-        try {
-            const employeeExists = await Employee.findOne({ email });
-            if (employeeExists) {
-                throw new Error('An employee with this email already exists');
-            }
+    const token = generateToken(savedUser._id);
 
-            const newEmployee = new Employee({
-                first_name,
-                last_name,
-                email,
-                gender,
-                salary,
-            });
+    return {
+      token,
+      user: {
+        _id: savedUser._id,
+        username: savedUser.username,
+        email: savedUser.email
+      }
+    };
+  },
 
-            const savedEmployee = await newEmployee.save();
+  addNewEmployee: async (_, { first_name, last_name, email, gender, salary }, context) => {
+    isAuthenticated(context);
 
-            return savedEmployee;
-        } catch (error) {
-            throw new Error(`Adding new employee failed: ${error.message}`);
-        }
-    },
+    const employeeExists = await Employee.findOne({ email });
+    if (employeeExists) {
+      throw new Error('An employee with this email already exists');
+    }
 
-    updateEmployee: async (_, { eid, first_name, last_name, email, gender, salary }) => {
-        try {
-            const employee = await Employee.findById(eid);
-            if (!employee) {
-                throw new Error(`Employee with id ${eid} not found`);
-            }
+    const newEmployee = new Employee({
+      first_name,
+      last_name,
+      email,
+      gender,
+      salary,
+    });
 
-            employee.first_name = first_name || employee.first_name;
-            employee.last_name = last_name || employee.last_name;
-            employee.email = email || employee.email;
-            employee.gender = gender || employee.gender;
-            employee.salary = salary || employee.salary;
+    return await newEmployee.save();
+  },
 
-            const updatedEmployee = await employee.save();
+  updateEmployee: async (_, { eid, first_name, last_name, email, gender, salary }, context) => {
+    isAuthenticated(context);
 
-            return updatedEmployee;
-        } catch (error) {
-            throw new Error(`Updating employee failed: ${error.message}`);
-        }
-    },
+    const employee = await Employee.findById(eid);
+    if (!employee) {
+      throw new Error(`Employee with id ${eid} not found`);
+    }
 
-    deleteEmployee: async (_, { eid }) => {
-        try {
-            const deletedEmployee = await Employee.findByIdAndDelete(eid);
-            if (!deletedEmployee) {
-                throw new Error(`Employee with id ${eid} not found`);
-            }
-            
-            return {
-                success: true,
-                message: `Employee with id ${eid} was deleted successfully`,
-            };
-        } catch (error) {
-            throw new Error(`Deleting employee failed: ${error.message}`);
-        }
-    },
+    employee.first_name = first_name || employee.first_name;
+    employee.last_name = last_name || employee.last_name;
+    employee.email = email || employee.email;
+    employee.gender = gender || employee.gender;
+    employee.salary = salary !== undefined ? salary : employee.salary;
+
+    return await employee.save();
+  },
+
+  deleteEmployee: async (_, { eid }, context) => {
+    isAuthenticated(context);
+
+    const deletedEmployee = await Employee.findByIdAndDelete(eid);
+    if (!deletedEmployee) {
+      throw new Error(`Employee with id ${eid} not found`);
+    }
+
+    return {
+      success: true,
+      message: `Employee with id ${eid} was deleted successfully`,
+    };
+  },
 };
 
 module.exports = mutationResolvers;
